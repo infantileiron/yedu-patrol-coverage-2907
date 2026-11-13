@@ -6,3 +6,6 @@ JWT_SECRET=os.getenv('JWT_SECRET','coverage-map-demo-change-before-public-use')
 SEED_DEMO=os.getenv('SEED_DEMO','true').lower()=='true'
 TASK_MODE=os.getenv('TASK_MODE','redis')
 ARTIFACT_DIR=Path(os.getenv('ARTIFACT_DIR','/artifacts'))
+RUN_STALE_SECONDS=float(os.getenv('RUN_STALE_SECONDS','120'))
+RUN_REQUEUE_SECONDS=float(os.getenv('RUN_REQUEUE_SECONDS','30'))
+RUN_RECOVER_INTERVAL=float(os.getenv('RUN_RECOVER_INTERVAL','15'))

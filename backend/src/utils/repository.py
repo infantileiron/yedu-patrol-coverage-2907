@@ -1,4 +1,5 @@
 import json
+from contextlib import contextmanager
 from dataclasses import asdict
 from urllib.parse import urlsplit,unquote
 import pymysql
@@ -39,4 +40,30 @@ def put(table,item,insert_only=False):
    if insert_only:c.execute(f'INSERT IGNORE INTO {table}(id,payload) VALUES(%s,%s)',(item['id'],payload))
    else:c.execute(f'INSERT INTO {table}(id,payload) VALUES(%s,%s) ON DUPLICATE KEY UPDATE payload=VALUES(payload)',(item['id'],payload))
   conn.commit();return item
+ finally:conn.close()
+@contextmanager
+def lock(name,timeout=10):
+ """跨进程命名锁：backend 与 worker 经同一 MySQL 互斥，连接关闭即释放。"""
+ conn=connect()
+ try:
+  with conn.cursor() as c:
+   c.execute('SELECT GET_LOCK(%s,%s)',(name,timeout))
+   if c.fetchone()[0]!=1:raise RuntimeError('数据库锁等待超时，请重试')
+  yield
+ finally:conn.close()
+def mutate(table,id,fn):
+ """行级锁内读取-修改-写回；fn 返回 None 表示条件不满足、放弃写入。"""
+ assert table in TABLES
+ conn=connect()
+ try:
+  with conn.cursor() as c:
+   c.execute('SELECT GET_LOCK(%s,%s)',(f'coverage-map-row-{table}-{id}',10))
+   if c.fetchone()[0]!=1:raise RuntimeError('数据库锁等待超时，请重试')
+   c.execute(f'SELECT payload FROM {table} WHERE id=%s',(id,))
+   row=c.fetchone()
+   if row is None:raise HTTPException(404,'记录不存在')
+   updated=fn(json.loads(row[0]))
+   if updated is not None:
+    c.execute(f'INSERT INTO {table}(id,payload) VALUES(%s,%s) ON DUPLICATE KEY UPDATE payload=VALUES(payload)',(updated['id'],json.dumps(updated,ensure_ascii=False,allow_nan=False)))
+  conn.commit();return updated
  finally:conn.close()

@@ -45,6 +45,10 @@ Haversine距离以地球平均半径6371.0088km计算。纬度/经度先转弧�
 
 结果包括完整距离矩阵、选点序列、成本、覆盖/未覆盖样点、逐点最近选中距离、移除敏感性、输入SHA256与方法限制，写数据库并存共享产物卷。CSV与已批准的固定结果绑定，公式前缀文本做保护。
 
+## 并发、恢复与取消
+
+同一方案存在排队中或推演中的记录时，重复发起直接返回原记录，不新增任务也不占队列名额；多人同时发起经MySQL命名锁串行化，只建一条。worker启动时及每15秒扫描中断记录：推演中超时（RUN_STALE_SECONDS，默认120秒）的记录自动重新排队并累加恢复次数，丢失的排队任务补投。每次重投递增attempt作为围栏令牌，回写结果前校验状态与attempt，多处同时计算同一记录也只有最新一代的结果落库，恢复前旧计算的迟到结果不会覆盖新结果。页面可取消排队中/推演中的记录，取消立即释放队列名额；已取消记录拒绝迟到的回写，保持取消状态。取消与重复发起均不影响已完成记录，覆盖计算、复核与归档流程不变。
+
 SVG前端地图无外部地图服务，使用局部等距近似投影及等尺度圆圈，标注模拟背景与坐标示意；实际覆盖判断全部由后端球面距离完成。大范围/极地数据的图形投影不能作为测绘成果，距离表仍按球面计算。需要航道距离时应另行提供真实通行图，不把直线覆盖当实地可达性。
 
 ## 技术与目录
@@ -62,11 +66,11 @@ SVG前端地图无外部地图服务，使用局部等距近似投影及等尺�
 
 Seed自然键insert-only，不覆盖用户修改；固定随机seed2204生成180需求点、24候选点及已完成方案/复核/报告。SEED_DEMO=true启动自动seed，失败记录日志。演示数据与剧本一致。
 
-环境：DATABASE_URL、REDIS_URL、JWT_SECRET、SEED_DEMO、TASK_MODE、ARTIFACT_DIR；端口与数据库口令见.env.example。后端本地开发：安装requirements.txt并配置已运行MySQL/Redis后，`uvicorn src.main:app --reload`。前端 `npm install && npm run dev`，Vite配置将/api转发localhost:19213。
+环境：DATABASE_URL、REDIS_URL、JWT_SECRET、SEED_DEMO、TASK_MODE、ARTIFACT_DIR、RUN_STALE_SECONDS、RUN_REQUEUE_SECONDS、RUN_RECOVER_INTERVAL；端口与数据库口令见.env.example。后端本地开发：安装requirements.txt并配置已运行MySQL/Redis后，`uvicorn src.main:app --reload`。前端 `npm install && npm run dev`，Vite配置将/api转发localhost:19213。
 
 ## 已知边界
 
-模拟成本不含地形、通行与用地约束。Redis BLPOP出队后worker强杀无自动重投，需要重新提交。JSON文本载荷未实现多人编辑乐观锁和迁移回滚；默认账号仅本地演示。贪心是解释性启发式，不保证全局最优。
+模拟成本不含地形、通行与用地约束。中断的推演依赖worker周期扫描自动恢复，恢复延迟至多为扫描间隔加超时阈值。JSON文本载荷未实现多人编辑乐观锁和迁移回滚；默认账号仅本地演示。贪心是解释性启发式，不保证全局最优。
 
 真实容器、HTTP、手算oracle、浏览器主流程与截图证据在批次test-artifacts/gb-2204，源码目录不含测试报告、截图或日志。
 
